@@ -6,8 +6,8 @@
 [![Dependency Status](https://gemnasium.com/abonas/kubeclient.svg)](https://gemnasium.com/abonas/kubeclient)
 
 A Ruby client for Kubernetes REST api.
-The client supports GET, POST, PUT, DELETE on nodes, pods, secrets, services, replication controllers, namespaces, resource quotas, limit ranges, endpoints, persistent volumes, persistent volume claims, component statuses and service accounts.
-The client currently supports Kubernetes REST api version v1.
+The client supports GET, POST, PUT, DELETE on nodes, pods, secrets, services, replication controllers, deployments, namespaces, resource quotas, limit ranges, endpoints, persistent volumes, persistent volume claims, component statuses and service accounts.
+The client currently supports Kubernetes REST api version v1 (and limited selection of extension APIs).
 
 ## Installation
 
@@ -38,6 +38,11 @@ Or without specifying version (it will be set by default to "v1")
 client = Kubeclient::Client.new 'http://localhost:8080/api/'
 ```
 
+Or to access the extension api groups
+```ruby
+client = Kubeclient::Client.new 'http://localhost:8080/apis', 'extensions/v1beta1'
+```
+
 Another option is to initialize the client with URI object:
 
 ```ruby
@@ -64,7 +69,7 @@ As an alternative to the `ca_file` it's possible to use the `cert_store`:
 cert_store = OpenSSL::X509::Store.new
 cert_store.add_cert(OpenSSL::X509::Certificate.new(ca_cert_data))
 ssl_options = {
-  cert_store: cert_store,
+  cert_store: cert_store
   verify_ssl: OpenSSL::SSL::VERIFY_PEER
 }
 client = Kubeclient::Client.new 'https://localhost:8443/api/' , "v1",
@@ -122,62 +127,16 @@ for more details). For example:
 ```ruby
 auth_options = {
   bearer_token_file: '/var/run/secrets/kubernetes.io/serviceaccount/token'
+
 }
 client = Kubeclient::Client.new 'https://localhost:8443/api/' , 'v1',
                                 auth_options: auth_options
 ```
 
-You can also use kubeclient with non-blocking sockets such as Celluloid::IO, see [here](https://github.com/httprb/http/wiki/Parallel-requests-with-Celluloid%3A%3AIO) 
-for details. For example:
-
-```ruby
-require 'celluloid/io'
-socket_options = {
-  socket_class: Celluloid::IO::TCPSocket,
-  ssl_socket_class: Celluloid::IO::SSLSocket
-}
-client = Kubeclient::Client.new 'https://localhost:8443/api/' , 'v1',
-                                socket_options: socket_options
-```
-
-You can also use kubeclient with an http proxy server such as tinyproxy. It can be entered as a string or a URI object
-For example:
-```ruby
-proxy_uri = URI::HTTP.build(host: "myproxyhost", port: 8443)
-client = Kubeclient::Client.new('https://localhost:8443/api/',
-                                :http_proxy_uri => proxy_uri)
-```
-
-### Kubeclient::Config
-
-If you've been using `kubectl` and have a `.kube/config` file, you can auto-populate a config object using `Kubeclient::Config`:
-```ruby
-config = Kubeclient::Config.read('/path/to/.kube/config')
-```
-
-...and then pass that object to `Kubeclient::Client`:
-
-```
-Kubeclient::Client.new(
-	config.context.api_endpoint,
-    config.context.api_version,
-    {
-    	ssl_options: config.context.ssl_options,
-    	auth_options: config.context.auth_options
-    }
-)
-```
-
-You can also load your JSONified config in from an ENV variable (e.g. `KUBE_CONFIG`) like so:
-
-```
-Kubeclient::Config.new(JSON.parse(ENV['KUBE_CONFIG']), nil)
-```
-
 ## Examples:
 
 #### Get all instances of a specific entity type
-Such as: `get_pods`, `get_secrets`, `get_services`, `get_nodes`, `get_replication_controllers`, `get_resource_quotas`, `get_limit_ranges`, `get_persistent_volumes`, `get_persistent_volume_claims`, `get_component_statuses`, `get_service_accounts`
+Such as: `get_pods`, `get_secrets`, `get_services`, `get_nodes`, `get_replication_controllers`, `get_deployments`, `get_resource_quotas`, `get_limit_ranges`, `get_persistent_volumes`, `get_persistent_volume_claims`, `get_component_statuses`, `get_service_accounts`
 
 ```ruby
 pods = client.get_pods
@@ -201,7 +160,7 @@ pods = client.get_pods(label_selector: 'name=redis-master,app=redis')
 ```
 
 #### Get a specific instance of an entity (by name)
-Such as: `get_service "service name"` , `get_pod "pod name"` , `get_replication_controller "rc name"`, `get_secret "secret name"`, `get_resource_quota "resource quota name"`, `get_limit_range "limit range name"` , `get_persistent_volume "persistent volume name"` , `get_persistent_volume_claim "persistent volume claim name"`, `get_component_status "component name"`, `get_service_account "service account name"`
+Such as: `get_service "service name"` , `get_pod "pod name"` , `get_replication_controller "rc name"`, `get_deployment "deployment name"`, `get_secret "secret name"`, `get_resource_quota "resource quota name"`, `get_limit_range "limit range name"` , `get_persistent_volume "persistent volume name"` , `get_persistent_volume_claim "persistent volume claim name"`, `get_component_status "component name"`, `get_service_account "service account name"`
 
 The GET request should include the namespace name, except for nodes and namespaces entities.
 
@@ -250,6 +209,41 @@ service.metadata.labels.role = 'slave'
 client.create_service service`
 ```
 
+Below example is for the extension API
+```
+deployment = Kubeclient::Deployment.new(
+  {
+    apiVersion: 'extensions/v1beta1',
+    kind: 'Deployment',
+    metadata: {
+      name: 'testdep',
+      namespace: 'default'
+    },
+    spec: {
+      replicas: 1,
+      template: {
+        metadata: {
+          labels: {
+            app: 'nginx'
+          }
+        },
+        spec: {
+          containers: [
+            {
+              name: 'nginx',
+              image: 'nginx:1.7.9',
+              ports: [ { containerPort: 80} ]
+            }
+          ]
+        }
+      }
+    }
+  })
+
+client = Kubeclient::Client.new('http://localhost:8080/apis', 'extensions/v1beta1')
+client.create_deployment(deployment)
+```
+
 #### Update an entity
 For example: `update_pod`, `update_service`, `update_replication_controller`, `update_secret`, `update_resource_quota`, `update_limit_range`, `update_persistent_volume`, `update_persistent_volume_claim`, `update_service_account`
 
@@ -259,19 +253,6 @@ The below example is for v1
 
 ```ruby
 client.update_service service1
-```
-
-#### Patch an entity (by name)
-For example: `patch_pod`, `patch_service`, `patch_secret`, `patch_resource_quota`, `patch_persistent_volume`
-
-Input parameters - name (string) specifying the entity name, patch (hash) to be applied to the resource, optional: namespace name (string)
-
-The PATCH request should include the namespace name, except for nodes and namespaces entities.
-
-The below example is for v1
-
-```ruby
-client.patch_pod "docker-registry", {:metadata => {:annotations => {:key => 'value'}}}, "default"
 ```
 
 #### Get all entities of all types : all_entities
